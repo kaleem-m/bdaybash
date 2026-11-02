@@ -20,6 +20,12 @@
   --heading: 'Cinzel', serif;
   --letterfont: 'IM Fell English', serif;
   --body: 'Crimson Pro', Georgia, serif;
+
+  /* Parchment grain + horizontal paper fibres: one tiny tileable SVG noise
+     tile (<1 KB, inline). Used as a background IMAGE it is rasterised once
+     and tiled from cache. It is not a live CSS filter, so it costs nothing
+     per frame. The sheet and the rolled ends share the same cached raster. */
+  --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='f' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.015 .28' numOctaves='2' seed='7' stitchTiles='stitch' result='a'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' seed='3' stitchTiles='stitch' result='b'/%3E%3CfeComposite in='a' in2='b' operator='arithmetic' k2='.5' k3='.5'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .2 0 0 0 0 .08 -1.15 0 0 0 .6'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23f)'/%3E%3C/svg%3E");
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -254,32 +260,54 @@ button:focus-visible {
 }
 .scroll:hover { transform: scale(1.02); }
 
+/* Rolled ends: a cylinder of the same parchment. The vertical gradient models
+   light from above (dark underside, broad highlight, core shadow). The ends
+   are darkened, and the shared grain sits on top. Static: painted once. */
 .scroll-rod {
   position: relative;
   width: 100%;
-  height: 20px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #a1792f, #6b4d14 45%, #8a6a24 80%, #4a3410);
-  box-shadow: 0 4px 12px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.25);
+  height: 24px;
+  border-radius: 5px / 50%;
+  background:
+    linear-gradient(90deg, rgba(70,42,16,.45), transparent 7%, transparent 93%, rgba(70,42,16,.45)),
+    linear-gradient(180deg, rgba(255,250,232,0) 30%, rgba(255,250,232,.55) 38%, rgba(255,250,232,0) 46%),
+    var(--paper-grain),
+    linear-gradient(180deg, #5c3f1f 0%, #a8854f 12%, #dcc28e 26%, #efdfb6 40%, #e2c996 56%, #b8945c 76%, #7d5c33 90%, #4a321a 100%);
+  box-shadow:
+    0 6px 8px -3px rgba(0,0,0,.6),
+    0 1px 1px rgba(0,0,0,.35);
   z-index: 2;
+  /* The rolls slide apart while the paper unrolls. On their own layer they
+     are just moved by the compositor instead of repainted every frame. */
+  will-change: transform;
 }
+/* Spiral ends of the roll: concentric paper layers from a repeating radial
+   gradient (elliptical because the box is taller than it is wide). */
 .scroll-rod::before, .scroll-rod::after {
   content: "";
   position: absolute;
-  top: 50%;
-  width: 14px;
-  height: 14px;
+  top: 0;
+  width: 11px;
+  height: 100%;
   border-radius: 50%;
-  transform: translateY(-50%);
-  background: radial-gradient(circle at 35% 30%, #d8b45e, #6b4d14);
-  box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  background:
+    radial-gradient(ellipse at 50% 50%, #3a2510 0 18%, transparent 24%),
+    repeating-radial-gradient(ellipse at 50% 50%, #ead6a6 0 1.1px, #a07c48 1.3px 2.1px),
+    #c9ab74;
+  box-shadow:
+    inset 0 0 0 1px rgba(80,50,20,.55),
+    inset 0 -3px 3px rgba(60,35,12,.4),
+    0 2px 3px rgba(0,0,0,.45);
 }
-.scroll-rod::before { left: -9px; }
-.scroll-rod::after  { right: -9px; }
+.scroll-rod::before { left: -5px; }
+.scroll-rod::after  { right: -5px; }
 
+/* The visible paper. Only its HEIGHT animates, exactly as before. The
+   textured sheet lives in ::before at a fixed size, so the expensive layers
+   are never resized during the unroll; the parent simply reveals more. */
 .scroll-paper {
   position: relative;
-  width: calc(100% - 6px);
+  width: calc(100% - 8px);
   height: 74px;
   overflow: hidden;
   display: flex;
@@ -287,17 +315,74 @@ button:focus-visible {
   align-items: center;
   justify-content: center;
   gap: .4rem;
-  background:
-    radial-gradient(ellipse at 30% 0%, rgba(255,255,255,.5), transparent 60%),
-    linear-gradient(180deg, #efe1bd, #e6d3a4 55%, #dcc48f);
-  box-shadow:
-    0 10px 24px rgba(0,0,0,.45),
-    inset 0 6px 12px rgba(120,85,35,.28),
-    inset 0 -6px 12px rgba(120,85,35,.24);
+  box-shadow: 0 10px 24px rgba(0,0,0,.45);
   transition: height 1s cubic-bezier(.6, 0, .25, 1);
   z-index: 1;
 }
 .scroll.open .scroll-paper { height: 310px; }
+.scroll-paper > * { position: relative; z-index: 1; }
+
+/* The parchment sheet, at full open size (310px) and centred: the closed
+   scroll shows its middle band, and opening reveals it towards both rolls. */
+.scroll-paper::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 310px;
+  margin-top: -155px;
+  pointer-events: none;
+  /* Own compositor layer: the sheet is rasterised ONCE, and the unroll just
+     reveals more of it through the parent's growing clip. Without this,
+     every animation frame repainted all of the layers below. */
+  will-change: transform;
+  background:
+    /* very subtle creases: old fold lines catch light on one side */
+    linear-gradient(180deg, transparent 32.4%, rgba(255,250,235,.3) 32.9%, rgba(105,70,32,.15) 33.4%, transparent 34.3%),
+    linear-gradient(180deg, transparent 66.2%, rgba(105,70,32,.13) 66.7%, rgba(255,250,235,.24) 67.2%, transparent 68%),
+    linear-gradient(103deg, transparent 61%, rgba(105,70,32,.07) 61.4%, rgba(255,250,235,.15) 61.9%, transparent 62.6%),
+    /* grain + fibres */
+    var(--paper-grain),
+    /* foxing (age spots) and faint water marks */
+    radial-gradient(circle at 17% 74%, rgba(135,85,35,.18), transparent 7%),
+    radial-gradient(circle at 21% 79%, rgba(135,85,35,.1), transparent 4%),
+    radial-gradient(circle at 83% 22%, rgba(135,85,35,.14), transparent 6%),
+    radial-gradient(ellipse 32% 16% at 72% 84%, rgba(150,102,48,.13), transparent 70%),
+    radial-gradient(ellipse 26% 12% at 34% 12%, rgba(150,102,48,.1), transparent 70%),
+    /* paler, worn areas */
+    radial-gradient(ellipse 45% 28% at 36% 30%, rgba(255,247,222,.4), transparent 70%),
+    radial-gradient(ellipse 35% 22% at 64% 60%, rgba(255,247,222,.25), transparent 70%),
+    /* darkened, weathered edges: uneven blotches + edge burn + vignette */
+    radial-gradient(ellipse 13% 20% at 0 36%, rgba(92,55,20,.35), transparent 70%),
+    radial-gradient(ellipse 11% 16% at 100% 66%, rgba(92,55,20,.32), transparent 70%),
+    radial-gradient(ellipse 9% 12% at 100% 14%, rgba(92,55,20,.25), transparent 70%),
+    linear-gradient(90deg, rgba(88,52,20,.55), rgba(118,78,34,.2) 3.5%, transparent 10%, transparent 90%, rgba(118,78,34,.2) 96.5%, rgba(88,52,20,.55)),
+    radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(118,76,30,.3) 100%),
+    /* warm, uneven base tone instead of a flat yellow */
+    linear-gradient(97deg, #e3cd9c, #eddcb2 26%, #e6d0a0 50%, #efdfb6 73%, #dcc290);
+  /* slightly irregular, worn side edges (static, never animated) */
+  clip-path: polygon(
+    1px 0, calc(100% - 2px) 0,
+    100% 7%, calc(100% - 2px) 15%, calc(100% - 1px) 24%, 100% 33%,
+    calc(100% - 3px) 41%, calc(100% - 1px) 50%, 100% 58%, calc(100% - 2px) 67%,
+    100% 76%, calc(100% - 3px) 84%, calc(100% - 1px) 92%, calc(100% - 2px) 100%,
+    2px 100%, 0 93%, 3px 85%, 1px 77%, 0 68%, 2px 59%,
+    0 50%, 3px 42%, 1px 34%, 0 25%, 2px 16%, 0 8%
+  );
+}
+
+/* Shadow where the paper curls into each roll. A plain gradient replaces the
+   old blurred inset box-shadows, which are costlier to repaint mid-animation. */
+.scroll-paper::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(52,30,10,.55), rgba(52,30,10,.2) 5px, rgba(52,30,10,0) 16px,
+    rgba(52,30,10,0) calc(100% - 16px), rgba(52,30,10,.2) calc(100% - 5px), rgba(52,30,10,.55));
+}
 
 .scroll-ornament {
   color: #8a6520;
